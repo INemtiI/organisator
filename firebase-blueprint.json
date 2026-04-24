@@ -1,0 +1,130 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user-specific settings and role",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["participant", "organizer"] },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "email", "role"]
+    },
+    "Event": {
+      "title": "Event/Schedule Item",
+      "description": "A session or activity in the event schedule",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "location": { "type": "string" },
+        "type": { "type": "string", "enum": ["session", "masterclass", "break", "other"] },
+        "speakerName": { "type": "string" },
+        "maxParticipants": { "type": "integer" }
+      },
+      "required": ["title", "startTime", "endTime"]
+    },
+    "Registration": {
+      "title": "Masterclass Registration",
+      "description": "Records a user's intent to attend a masterclass",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "eventId": { "type": "string" },
+        "status": { "type": "string", "enum": ["confirmed", "waitlist"] },
+        "queuePosition": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "eventId", "status", "timestamp"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "A message sent in the community chat",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "text", "timestamp"]
+    },
+    "Question": {
+      "title": "Question to Organizer",
+      "description": "Questions asked by participants to organizers or speakers",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "reply": { "type": "string" },
+        "repliedAt": { "type": "string", "format": "date-time" },
+        "repliedBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "answered"] }
+      },
+      "required": ["userId", "text", "timestamp", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Broadcasts from organizers to participants",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "authorName": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "urgent", "schedule"] }
+      },
+      "required": ["text", "timestamp", "authorName"]
+    },
+    "Poll": {
+      "title": "Poll",
+      "description": "A poll created by organizers",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "options": { "type": "array" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["question", "options", "isActive"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/events/{eventId}": {
+      "schema": "Event",
+      "description": "Schedule events including masterclasses"
+    },
+    "/registrations/{registrationId}": {
+      "schema": "Registration",
+      "description": "Masterclass registrations"
+    },
+    "/chat_messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Global event chat"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Questions for speakers"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Public announcements from organizers"
+    },
+    "/polls/{pollId}": {
+      "schema": "Poll",
+      "description": "Live polls"
+    }
+  }
+}

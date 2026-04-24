@@ -1,0 +1,10 @@
+{
+  "name": "Организатор в кармане",
+  "description": "Comprehensive event management app for participants and organizers. Features include real-time masterclass registration with waitlists, event schedules, interactive polls, and attendee chat.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}

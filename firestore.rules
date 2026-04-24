@@ -1,0 +1,149 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        request.auth.token.email == 'rodionovazarij@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organizer')
+      ); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // --- Data Validation ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['displayName', 'email', 'role', 'createdAt']) 
+        && data.displayName is string && data.displayName.size() <= 100
+        && data.email is string && data.email.size() <= 255
+        && data.role in ['participant', 'organizer']
+        && data.createdAt is timestamp
+        && (!data.keys().contains('photoURL') || (data.photoURL is string && data.photoURL.size() <= 1000));
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['title', 'startTime', 'endTime'])
+        && data.title is string && data.title.size() <= 200
+        && data.startTime is timestamp
+        && data.endTime is timestamp
+        && (!data.keys().contains('type') || data.type in ['session', 'masterclass', 'break', 'other'])
+        && (!data.keys().contains('maxParticipants') || data.maxParticipants is int)
+        && (!data.keys().contains('confirmedCount') || data.confirmedCount is int);
+    }
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll(['userId', 'eventId', 'status', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.status in ['confirmed', 'waitlist']
+        && data.timestamp == request.time
+        && isValidId(data.eventId);
+    }
+
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['userId', 'userName', 'text', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.text is string && data.text.size() <= 1000
+        && data.timestamp == request.time;
+    }
+
+    function isValidQuestion(data) {
+      return data.keys().hasAll(['userId', 'userName', 'userPhoto', 'text', 'timestamp', 'status'])
+        && data.keys().size() == 6
+        && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() <= 200
+        && data.userPhoto is string && data.userPhoto.size() <= 2000
+        && data.text is string && data.text.size() <= 2000
+        && data.timestamp == request.time
+        && data.status == 'pending';
+    }
+
+    // --- Rules ---
+
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId) || isAdmin(); 
+    }
+
+    match /test/connection {
+      allow get: if true; // Allow connectivity check
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUserProfile(incoming()) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && isValidUserProfile(incoming()) 
+        && incoming().createdAt == existing().createdAt
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']) && incoming().updatedAt == request.time)
+        );
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow delete, create: if isAdmin();
+      // Allow update for admins OR specific confirmedCount updates
+      allow update: if isAdmin() || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['confirmedCount']));
+    }
+
+    match /registrations/{registrationId} {
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'waitlist' || isAdmin());
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'waitlist' || isAdmin());
+      allow create: if isSignedIn() && isValidRegistration(incoming()) 
+        && exists(/databases/$(database)/documents/events/$(incoming().eventId));
+      allow update: if isAdmin() || (
+        isSignedIn() && (
+          (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) || 
+          (existing().status == 'waitlist' && incoming().status == 'confirmed' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'queuePosition']))
+        )
+      );
+      allow delete: if isAdmin() || isOwner(existing().userId);
+    }
+
+    match /chat_messages/{messageId} {
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && isValidChatMessage(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /questions/{questionId} {
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && isValidQuestion(incoming());
+      allow update: if isAdmin() || (
+        isSignedIn() && (
+          // Allow users to upvote if we keep that feature (votes field was in old blueprint)
+          incoming().diff(existing()).affectedKeys().hasOnly(['votes'])
+        )
+      );
+      allow delete: if isAdmin() || isOwner(existing().userId);
+    }
+
+    match /announcements/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /votes/{voteId} {
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && (incoming().timestamp == request.time || incoming().timestamp is timestamp);
+      allow update, delete: if isAdmin();
+    }
+
+    match /polls/{pollId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
