@@ -1,5 +1,6 @@
 {
   "name": "react-example",
+  "homepage": "https://github.com/INemtiI/organisator",
   "private": true,
   "version": "0.0.0",
   "type": "module",
