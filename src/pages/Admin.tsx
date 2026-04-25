@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Event, Registration, Announcement, Poll } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Plus, Edit2, Users, Loader2, MessageSquare, CheckCircle2, X } from 'lucide-react';
+import { VENUE_LOCATIONS } from '../constants';
 
 interface Question {
   id: string;
@@ -139,9 +140,34 @@ export default function AdminPanel() {
 
   const [editingEvent, setEditingEvent] = useState<Partial<Event> | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [allRegistrations, setAllRegistrations] = useState<Registration[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedEventForList, setSelectedEventForList] = useState<Event | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteAnnConfirmId, setDeleteAnnConfirmId] = useState<string | null>(null);
+  const [deletePollConfirmId, setDeletePollConfirmId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    // Listen for all registrations
+    const unsubRegs = onSnapshot(collection(db, 'registrations'), (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Registration[];
+      setAllRegistrations(list);
+    });
+
+    // Listen for all users
+    const unsubUsersList = onSnapshot(collection(db, 'users'), (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(list);
+    });
+
+    return () => {
+      unsubRegs();
+      unsubUsersList();
+    };
+  }, [isAdmin]);
 
   const handleDeleteEvent = async (id: string) => {
     setDeleteConfirmId(null);
@@ -297,12 +323,9 @@ export default function AdminPanel() {
   };
 
   const handleDeletePoll = async (pollId: string) => {
-    if (!confirm('Удалить этот опрос и все голоса?')) return;
+    setDeletePollConfirmId(null);
     try {
-      // Delete poll
       await deleteDoc(doc(db, 'polls', pollId));
-      // In a real app, you might want to delete associated votes too, 
-      // but for simplicity in firestore rules we often just leave them or use a subcollection.
     } catch (err) {
       console.error(err);
       alert('Ошибка при удалении');
@@ -375,7 +398,7 @@ export default function AdminPanel() {
           description: "Начало дня, получение бейджей",
           startTime: new Date(today.getTime() + 9 * 60 * 60 * 1000),
           endTime: new Date(today.getTime() + 10 * 60 * 60 * 1000),
-          location: "Холл 1 этаж",
+          location: "Стойка регистрации",
           type: "session",
           speakerName: "Команда Организаторов",
           confirmedCount: 0
@@ -395,7 +418,7 @@ export default function AdminPanel() {
           description: "Разбор новых хуков и серверных компонентов",
           startTime: new Date(today.getTime() + 11 * 30 * 60 * 1000),
           endTime: new Date(today.getTime() + 13 * 60 * 60 * 1000),
-          location: "Зал A",
+          location: "Конференц-зал A",
           type: "masterclass",
           speakerName: "Мария Смирнова",
           maxParticipants: 15,
@@ -415,7 +438,7 @@ export default function AdminPanel() {
           description: "Как внедрять LLM в реальные продукты",
           startTime: new Date(today.getTime() + 14 * 60 * 60 * 1000),
           endTime: new Date(today.getTime() + 15 * 30 * 60 * 1000),
-          location: "Зал B",
+          location: "Конференц-зал B",
           type: "session",
           speakerName: "Дмитрий Петров",
           confirmedCount: 0
@@ -425,7 +448,7 @@ export default function AdminPanel() {
           description: "Создание сложных UI за считанные минуты",
           startTime: new Date(today.getTime() + 15 * 30 * 60 * 1000),
           endTime: new Date(today.getTime() + 17 * 60 * 60 * 1000),
-          location: "Зал A",
+          location: "Конференц-зал A",
           type: "masterclass",
           speakerName: "Артем Кузнецов",
           maxParticipants: 20,
@@ -591,6 +614,13 @@ export default function AdminPanel() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => setSelectedEventForList(event)}
+                          className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                          title="Список участников"
+                        >
+                          <Users size={16} />
+                        </button>
                         <button 
                           onClick={() => {
                             setEditingEvent(event);
@@ -833,7 +863,7 @@ export default function AdminPanel() {
                           <Edit2 size={16} />
                         </button>
                         <button 
-                          onClick={() => handleDeletePoll(poll.id)}
+                          onClick={() => setDeletePollConfirmId(poll.id)}
                           className="p-2 border border-slate-200 text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 transition-colors"
                         >
                           <Trash2 size={16} />
@@ -875,6 +905,153 @@ export default function AdminPanel() {
           </div>
         )}
       </div>
+
+      {/* Participant List Modal */}
+      {selectedEventForList && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[100] backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+          >
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">{selectedEventForList.title}</h3>
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mt-1">Список участников и лист ожидания</p>
+              </div>
+              <button 
+                onClick={() => setSelectedEventForList(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-8">
+              {/* Confirmed Participants */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center font-bold">
+                    {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length}
+                  </div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-slate-900">Подтвержденные участники</h4>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {allRegistrations
+                    .filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed')
+                    .map(reg => {
+                      const userProfile = users.find(u => u.id === reg.userId);
+                      return (
+                        <div key={reg.id} className="flex items-center gap-3 p-3 border border-slate-100 rounded-lg bg-slate-50/50">
+                          <div className="w-10 h-10 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 font-bold overflow-hidden">
+                            {userProfile?.photoURL ? (
+                              <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              userProfile?.displayName?.[0] || '?'
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{userProfile?.displayName || 'Анонимный пользователь'}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{userProfile?.email || 'email@hidden'}</p>
+                          </div>
+                          <div className="ml-auto">
+                             <div className="text-[9px] uppercase font-bold text-green-500 bg-green-50 px-2 py-0.5 rounded">OK</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length === 0 && (
+                    <div className="col-span-full border-2 border-dashed border-slate-100 rounded-xl p-8 text-center text-slate-400 italic text-sm">
+                      Никто пока не подтвержден
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Waitlist */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center font-bold">
+                    {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length}
+                  </div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-slate-900">Лист ожидания</h4>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {allRegistrations
+                    .filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist')
+                    .map(reg => {
+                      const userProfile = users.find(u => u.id === reg.userId);
+                      return (
+                        <div key={reg.id} className="flex items-center gap-3 p-3 border border-slate-100 rounded-lg bg-slate-50/50">
+                          <div className="w-10 h-10 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 font-bold overflow-hidden">
+                            {userProfile?.photoURL ? (
+                              <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              userProfile?.displayName?.[0] || '?'
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{userProfile?.displayName || 'Анонимный пользователь'}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{userProfile?.email || 'email@hidden'}</p>
+                          </div>
+                          <div className="ml-auto">
+                             <div className="text-[9px] uppercase font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded">Wait</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length === 0 && (
+                    <div className="col-span-full border-2 border-dashed border-slate-100 rounded-xl p-8 text-center text-slate-400 italic text-sm">
+                      Лист ожидания пуст
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 text-right">
+              <button 
+                onClick={() => setSelectedEventForList(null)}
+                className="px-6 py-2 bg-slate-900 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors"
+              >
+                Закрыть
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Poll Delete Confirmation Modal */}
+      {deletePollConfirmId && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[90] backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6"
+          >
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Удалить опрос?</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              Это действие необратимо. Статистика ответов будет также удалена.
+            </p>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setDeletePollConfirmId(null)}
+                className="flex-1 py-2 border border-slate-200 rounded text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-colors"
+              >
+                Отмена
+              </button>
+              <button 
+                onClick={() => handleDeletePoll(deletePollConfirmId)}
+                className="flex-1 py-2 bg-red-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-red-700 transition-colors shadow-sm"
+              >
+                Удалить
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Announcement Delete Confirmation Modal */}
       {deleteAnnConfirmId && (
@@ -1041,12 +1218,16 @@ export default function AdminPanel() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Локация</label>
-                  <input 
-                    type="text" 
+                  <select 
                     value={editingEvent?.location || ''}
                     onChange={e => setEditingEvent({ ...editingEvent, location: e.target.value })}
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm focus:outline-none focus:border-blue-500"
-                  />
+                  >
+                    <option value="">Выберите локацию</option>
+                    {VENUE_LOCATIONS.map(loc => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Тип</label>

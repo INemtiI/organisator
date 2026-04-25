@@ -7,7 +7,9 @@ import Masterclasses from './pages/Masterclasses';
 import CommunityChat from './pages/Chat';
 import Questions from './pages/Questions';
 import AdminPanel from './pages/Admin';
+import VenueMap from './pages/Map';
 import Navigation from './components/Navigation';
+import NotificationManager from './components/NotificationManager';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -22,6 +24,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      <NotificationManager />
       <Navigation />
       <main className="flex-1 overflow-hidden">
         {children}
@@ -40,6 +43,7 @@ export default function App() {
           <Route path="/masterclasses" element={<ProtectedRoute><Masterclasses /></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><CommunityChat /></ProtectedRoute>} />
           <Route path="/questions" element={<ProtectedRoute><Questions /></ProtectedRoute>} />
+          <Route path="/map" element={<ProtectedRoute><VenueMap /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

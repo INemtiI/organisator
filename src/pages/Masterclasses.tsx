@@ -15,7 +15,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, Registration } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, Timer, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Users, Timer, CheckCircle, AlertCircle, Loader2, MapPin, X, Info, Clock } from 'lucide-react';
 import { formatTime } from '../utils';
 
 export default function Masterclasses() {
@@ -25,6 +25,7 @@ export default function Masterclasses() {
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [selectedMC, setSelectedMC] = useState<Event | null>(null);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -216,10 +217,11 @@ export default function Masterclasses() {
                   <motion.div 
                     layout
                     key={mc.id}
-                    className="bg-white border border-slate-200 rounded-lg p-6 flex flex-col shadow-sm hover:shadow-md transition-shadow"
+                    onClick={() => setSelectedMC(mc)}
+                    className="bg-white border border-slate-200 rounded-lg p-6 flex flex-col shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
                   >
                     <div className="flex items-start justify-between mb-6">
-                      <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center text-slate-500">
+                      <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
                         <Users size={20} />
                       </div>
                       <div className="text-right">
@@ -227,10 +229,17 @@ export default function Masterclasses() {
                       </div>
                     </div>
 
-                    <h3 className="font-bold text-slate-900 mb-1">{mc.title}</h3>
-                    <p className="text-xs text-slate-500 mb-6 uppercase tracking-wider">Спикер: {mc.speakerName}</p>
+                    <h3 className="font-bold text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">{mc.title}</h3>
+                    <p className="text-xs text-slate-500 mb-4 uppercase tracking-wider">Спикер: {mc.speakerName}</p>
 
-                    <div className="space-y-2 mb-8">
+                    <div className="space-y-2 mb-6">
+                      <div className="flex items-center justify-between text-xs py-2 border-b border-slate-50">
+                        <span className="text-slate-400 uppercase tracking-widest font-semibold">Локация</span>
+                        <div className="flex items-center gap-1 text-slate-900 font-bold">
+                          <MapPin size={10} className="text-blue-500" />
+                          <span>{mc.location}</span>
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between text-xs py-2 border-b border-slate-50">
                         <span className="text-slate-400 uppercase tracking-widest font-semibold">Время</span>
                         <span className="font-mono text-blue-600">{formatTime(mc.startTime)} — {formatTime(mc.endTime)}</span>
@@ -243,7 +252,12 @@ export default function Masterclasses() {
                       </div>
                     </div>
 
-                    <div className="mt-auto">
+                    <div className="flex items-center gap-2 text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-6">
+                      <Info size={12} />
+                      Нажмите для описания
+                    </div>
+
+                    <div className="mt-auto" onClick={(e) => e.stopPropagation()}>
                       <AnimatePresence mode="wait">
                         {registration ? (
                           <motion.div 
@@ -290,6 +304,70 @@ export default function Masterclasses() {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {selectedMC && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-6 z-[100] backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl relative"
+              onClick={e => e.stopPropagation()}
+            >
+              <button 
+                onClick={() => setSelectedMC(null)}
+                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-900 transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
+                <Info size={24} />
+              </div>
+              
+              <h2 className="text-xl font-bold text-slate-900 mb-2">{selectedMC.title}</h2>
+              <p className="text-blue-600 text-[10px] font-bold uppercase tracking-widest mb-6">
+                {selectedMC.speakerName}
+              </p>
+              
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center gap-3 text-slate-500">
+                   <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+                      <MapPin size={16} />
+                   </div>
+                   <div className="text-xs">
+                      <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Место проведения</p>
+                      <p className="font-bold text-slate-900">{selectedMC.location}</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-3 text-slate-500">
+                   <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+                      <Clock size={16} />
+                   </div>
+                   <div className="text-xs">
+                      <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Расписание</p>
+                      <p className="font-bold text-slate-900">{formatTime(selectedMC.startTime)} — {formatTime(selectedMC.endTime)}</p>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-5 mb-8">
+                <p className="text-sm text-slate-700 leading-relaxed italic">
+                  {selectedMC.description || 'Описание отсутствует.'}
+                </p>
+              </div>
+
+              <button 
+                onClick={() => setSelectedMC(null)}
+                className="w-full py-4 bg-slate-900 text-white rounded-xl text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-200"
+              >
+                Закрыть
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
 
   );

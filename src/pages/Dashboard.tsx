@@ -33,6 +33,15 @@ export default function Dashboard() {
   const [progress, setProgress] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== 'undefined' ? (window.Notification?.permission || 'default') : 'default'
+  );
+
+  const requestPermission = async () => {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'events'), orderBy('startTime', 'asc'));
@@ -165,8 +174,32 @@ export default function Dashboard() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-8 content-start">
+        {notificationPermission === 'default' && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="col-span-12 mb-8 bg-slate-900 rounded-lg p-5 flex flex-col md:flex-row items-center justify-between text-white shadow-xl shadow-slate-200 border border-slate-800"
+          >
+            <div className="flex items-center gap-5 mb-4 md:mb-0">
+              <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <Megaphone size={24} className="text-white" />
+              </div>
+              <div>
+                <p className="font-bold text-sm tracking-tight">Включите уведомления</p>
+                <p className="text-xs text-slate-400 font-medium">Получайте оповещения о свободных местах, начале событий и новых объявлениях.</p>
+              </div>
+            </div>
+            <button 
+              onClick={requestPermission}
+              className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white rounded-lg text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-600/20"
+            >
+              Включить
+            </button>
+          </motion.div>
+        )}
+
         <div className="grid grid-cols-12 gap-8 mb-8">
-          <div className="col-span-12 md:col-span-4 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
             <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-2 flex items-center gap-2">
               <Plus size={12} className="text-blue-500" />
               {nextMasterclass ? 'Ближайший мастер-класс' : 'Ваши мастер-классы'}
@@ -188,7 +221,7 @@ export default function Dashboard() {
 
           </div>
           
-          <div className="col-span-12 md:col-span-8 bg-white border border-slate-200 p-6 rounded-lg shadow-sm flex flex-col justify-between">
+          <div className="col-span-12 md:col-span-6 lg:col-span-8 bg-white border border-slate-200 p-6 rounded-lg shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
               <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
                 <Megaphone size={12} className="text-blue-500" />
@@ -325,7 +358,7 @@ export default function Dashboard() {
                   {events.map((event) => (
                     <tr key={event.id} className="hover:bg-slate-50 transition-colors group">
                       <td className="px-6 py-4 font-mono text-xs text-blue-600 tabular-nums border-r border-slate-50 bg-slate-50/30">
-                        {formatTime(event.startTime)}
+                        {formatTime(event.startTime)} — {formatTime(event.endTime)}
                       </td>
                       <td className="px-6 py-4 font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
                         {event.title}
@@ -366,38 +399,6 @@ export default function Dashboard() {
         {/* Polls Section Integration */}
         <div className="mt-8">
           <PollsSection />
-        </div>
-
-        {/* Map Section */}
-        <div className="mt-12 mb-8">
-          <h2 className="text-sm uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Навигация по площадке</h2>
-          <div className="geometric-card rounded-lg relative aspect-[21/9] bg-slate-900 overflow-hidden shadow-md">
-            <img 
-              src="https://images.unsplash.com/photo-1544333346-64e4fe18eda7?auto=format&fit=crop&q=80&w=2000" 
-              alt="Venue Map" 
-              className="w-full h-full object-cover opacity-20 grayscale brightness-150"
-            />
-            <div className="absolute inset-0 flex items-center justify-center p-8">
-              <div className="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-lg border border-white/20 shadow-2xl">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]">
-                    <MapIcon size={16} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 mb-0.5">Venue Access</p>
-                    <p className="text-sm font-bold text-white tracking-tight">Интерактивная схема здания</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-[10px] font-black uppercase tracking-widest">
-                  {['Сцена', 'Регистрация', 'Зал A', 'Зал B', 'Питание', 'Гардероб'].map(zone => (
-                    <button key={zone} className="p-3 border border-white/10 rounded bg-white/5 text-white/70 hover:bg-white hover:text-slate-900 hover:border-white transition-all text-left">
-                      {zone}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

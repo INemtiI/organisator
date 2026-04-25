@@ -12,6 +12,7 @@ import { db, auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, MessageSquare, Clock, CheckCircle2, User, ChevronRight } from 'lucide-react';
+import FAQ from '../components/FAQ';
 
 enum OperationType {
   CREATE = 'create',
@@ -139,6 +140,7 @@ export default function Questions() {
 
       <div className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="max-w-3xl mx-auto space-y-8">
+          <FAQ />
           {/* Ask Form */}
           <section className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
             <div className="p-4 bg-slate-50 border-b border-slate-100">

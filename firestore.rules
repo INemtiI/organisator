@@ -131,7 +131,7 @@ service cloud.firestore {
 
     match /announcements/{id} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /votes/{voteId} {
@@ -143,7 +143,7 @@ service cloud.firestore {
 
     match /polls/{pollId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
   }
 }
