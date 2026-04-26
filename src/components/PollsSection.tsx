@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   orderBy
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Poll } from '../types';
 import { motion } from 'motion/react';
@@ -29,26 +29,25 @@ export default function PollsSection() {
     const unsubPolls = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Poll[];
       setPolls(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'polls');
     });
 
     const unsubVotes = onSnapshot(collection(db, 'votes'), (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
       setAllVotes(list);
+      
+      // Derive user votes from all votes
+      if (profile) {
+        const vMap: Record<string, number> = {};
+        list.filter(v => v.userId === profile.id).forEach(v => {
+          vMap[v.pollId] = v.optionIndex;
+        });
+        setUserVotes(vMap);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'votes');
     });
-
-    // Fetch user votes (this would be better with a subcollection and rules)
-    const fetchVotes = async () => {
-      if (!profile) return;
-      const vQ = query(collection(db, 'votes'), where('userId', '==', profile.id));
-      const vSnapshot = await getDocs(vQ);
-      const vMap: Record<string, number> = {};
-      vSnapshot.docs.forEach(d => {
-        const data = d.data();
-        vMap[data.pollId] = data.optionIndex;
-      });
-      setUserVotes(vMap);
-    };
-    fetchVotes();
 
     return () => {
       unsubPolls();
@@ -69,7 +68,7 @@ export default function PollsSection() {
       setUserVotes(prev => ({ ...prev, [pollId]: optionIndex }));
       // In a real app, votes are counted via a field on the poll doc or by counting docs
     } catch (err) {
-      console.error(err);
+      handleFirestoreError(err, OperationType.WRITE, 'votes');
     }
   };
 

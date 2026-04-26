@@ -13,12 +13,13 @@ import {
   updateDoc,
   writeBatch
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, Registration, Announcement, Poll } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Plus, Edit2, Users, Loader2, MessageSquare, CheckCircle2, X } from 'lucide-react';
+import { Trash2, Plus, Edit2, Users, Loader2, MessageSquare, CheckCircle2, X, QrCode, Scan, Search, Check, AlertCircle } from 'lucide-react';
 import { VENUE_LOCATIONS } from '../constants';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 interface Question {
   id: string;
@@ -48,7 +49,12 @@ export default function AdminPanel() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
-  const [activeTab, setActiveTab] = useState<'events' | 'questions' | 'announcements' | 'polls'>('events');
+  const [users, setUsers] = useState<any[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [activeTab, setActiveTab] = useState<'events' | 'questions' | 'announcements' | 'polls' | 'attendance'>('events');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanResult, setScanResult] = useState<{success: boolean, message: string} | null>(null);
+  const [searchAttendee, setSearchAttendee] = useState('');
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -78,14 +84,14 @@ export default function AdminPanel() {
       setAttendeeCounts(counts);
       setLoading(false);
     }, (error) => {
-      console.warn("Admin events listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'events');
     });
 
     // Listen for users
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       setStats(prev => ({ ...prev, totalUsers: snap.size }));
     }, (error) => {
-      console.warn("Admin users listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
 
     // Listen for questions
@@ -95,7 +101,7 @@ export default function AdminPanel() {
       setQuestions(list);
       setStats(prev => ({ ...prev, totalQuestions: snap.size }));
     }, (error) => {
-      console.warn("Admin questions listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'questions');
     });
 
     // Listen for waitlist
@@ -103,7 +109,7 @@ export default function AdminPanel() {
     const unsubWaitlist = onSnapshot(qWaitlist, (snap) => {
       setStats(prev => ({ ...prev, waitlistCount: snap.size }));
     }, (error) => {
-      console.warn("Admin waitlist listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'registrations');
     });
 
     // Listen for all polls
@@ -112,12 +118,16 @@ export default function AdminPanel() {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Poll[];
       setPolls(list);
       setStats(prev => ({ ...prev, activePolls: list.filter(p => p.isActive).length }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'polls');
     });
 
     // Listen for votes to show stats
     const unsubVotes = onSnapshot(collection(db, 'votes'), (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Vote[];
       setVotes(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'votes');
     });
 
     // Listen for announcements
@@ -125,6 +135,8 @@ export default function AdminPanel() {
     const unsubAnn = onSnapshot(qAnn, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Announcement[];
       setAnnouncements(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'announcements');
     });
 
     return () => {
@@ -140,8 +152,6 @@ export default function AdminPanel() {
 
   const [editingEvent, setEditingEvent] = useState<Partial<Event> | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [allRegistrations, setAllRegistrations] = useState<Registration[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
   const [selectedEventForList, setSelectedEventForList] = useState<Event | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -154,13 +164,17 @@ export default function AdminPanel() {
     // Listen for all registrations
     const unsubRegs = onSnapshot(collection(db, 'registrations'), (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Registration[];
-      setAllRegistrations(list);
+      setRegistrations(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'registrations');
     });
 
     // Listen for all users
     const unsubUsersList = onSnapshot(collection(db, 'users'), (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setUsers(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
 
     return () => {
@@ -202,6 +216,83 @@ export default function AdminPanel() {
       }
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (showScanner && activeTab === 'attendance') {
+      const scanner = new Html5QrcodeScanner(
+        "barcode-reader", 
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+
+      const onScanSuccess = async (decodedText: string) => {
+        scanner.pause();
+        
+        // Extract userId if the scan result is a ticket URL
+        let userId = decodedText;
+        if (decodedText.includes('/ticket/')) {
+          userId = decodedText.split('/ticket/').pop() || decodedText;
+        }
+        
+        await handleMarkAttendance(userId);
+        setTimeout(() => {
+          try { scanner.resume(); } catch(e) {}
+        }, 2000);
+      };
+
+      scanner.render(onScanSuccess, (err) => {
+        // scan errors are common
+      });
+
+      return () => {
+        try { scanner.clear(); } catch(e) {}
+      };
+    }
+  }, [showScanner, activeTab]);
+
+  const handleMarkAttendance = async (userId: string) => {
+    try {
+      const userRegs = registrations.filter(r => r.userId === userId && r.status === 'confirmed');
+      const userProfile = users.find(u => u.id === userId);
+
+      if (!userProfile) {
+        setScanResult({ success: false, message: 'Пользователь не найден' });
+        return;
+      }
+
+      if (userRegs.length === 0) {
+        setScanResult({ success: false, message: `У ${userProfile.displayName} нет подтвержденных регистраций` });
+        return;
+      }
+      
+      const batch = writeBatch(db);
+      userRegs.forEach(reg => {
+        const regRef = doc(db, 'registrations', reg.id);
+        batch.update(regRef, { 
+          attended: true, 
+          attendedAt: serverTimestamp() 
+        });
+      });
+
+      await batch.commit();
+      setScanResult({ success: true, message: `ОТМЕЧЕНО: ${userProfile.displayName}` });
+      setTimeout(() => setScanResult(null), 3000);
+    } catch (err) {
+      setScanResult({ success: false, message: 'Ошибка при сохранении' });
+      handleFirestoreError(err, OperationType.WRITE, 'registrations');
+    }
+  };
+
+  const toggleAttendance = async (regId: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'registrations', regId), {
+        attended: !currentStatus,
+        attendedAt: !currentStatus ? serverTimestamp() : null
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'registrations/' + regId);
     }
   };
 
@@ -552,9 +643,19 @@ export default function AdminPanel() {
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Активные опросы</div>
             <div className="text-3xl font-light text-slate-900">{stats.activePolls}</div>
           </div>
-          <div className="bg-white border border-slate-200 p-6 rounded-sm shadow-sm opacity-70">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Лист ожидания</div>
-            <div className="text-3xl font-light text-slate-900">{stats.waitlistCount} <span className="text-xs text-slate-400">актив.</span></div>
+          <div 
+            onClick={() => setActiveTab('attendance')}
+            className={`cursor-pointer p-6 rounded-sm shadow-sm border transition-all ${activeTab === 'attendance' ? 'bg-white border-blue-500 ring-1 ring-blue-500/20' : 'bg-white border-slate-200 opacity-70 hover:opacity-100'}`}
+          >
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Журнал посещаемости</div>
+            <div className="text-3xl font-light text-slate-900">{registrations.filter(r => r.attended).length} <span className="text-xs text-slate-400">отмечено</span></div>
+          </div>
+          <div 
+            onClick={() => setActiveTab('events')}
+            className="bg-white border border-slate-200 p-6 rounded-sm shadow-sm opacity-70 cursor-pointer hover:opacity-100 transition-all"
+          >
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Расписание событий</div>
+            <div className="text-3xl font-light text-slate-900">{events.length}</div>
           </div>
         </div>
 
@@ -643,6 +744,199 @@ export default function AdminPanel() {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : activeTab === 'attendance' ? (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Scanner Section */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">QR Сканер</h2>
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Проверка пропусков участников</p>
+                  </div>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${showScanner ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+                    <Scan size={24} />
+                  </div>
+                </div>
+
+                <div className="relative aspect-square max-w-sm mx-auto bg-slate-50 rounded-3xl overflow-hidden border-2 border-dashed border-slate-200 mb-8 flex items-center justify-center">
+                  {showScanner ? (
+                    <div id="barcode-reader" style={{ width: '100%', height: '100%' }} />
+                  ) : (
+                    <div className="text-center p-8">
+                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-200 mx-auto mb-4 shadow-sm">
+                        <QrCode size={32} />
+                      </div>
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
+                        Нажмите кнопку ниже,<br />чтобы активировать камеру
+                      </p>
+                    </div>
+                  )}
+
+                  {scanResult && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className={`absolute inset-x-4 bottom-4 p-4 rounded-2xl shadow-xl flex items-center gap-4 z-20 ${
+                        scanResult.success ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                        {scanResult.success ? <Check size={20} /> : <AlertCircle size={20} />}
+                      </div>
+                      <p className="text-xs font-black uppercase tracking-tight">{scanResult.message}</p>
+                    </motion.div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setShowScanner(!showScanner)}
+                  className={`w-full py-4 rounded-xl text-[11px] font-black uppercase tracking-[0.2em] transition-all active:scale-95 shadow-lg ${
+                    showScanner 
+                    ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 shadow-slate-200' 
+                    : 'bg-slate-900 text-white hover:bg-slate-800 shadow-slate-900/20'
+                  }`}
+                >
+                  {showScanner ? 'Выключить камеру' : 'Включить сканер'}
+                </button>
+              </div>
+
+              {/* Attendance Quick Stats */}
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+                    <div className="w-4 h-[1px] bg-blue-500"></div>
+                    Статус по событиям
+                  </h3>
+                  <div className="space-y-4">
+                    {events.filter(e => e.type === 'masterclass').map(event => {
+                      const eventRegs = registrations.filter(r => r.eventId === event.id && r.status === 'confirmed');
+                      const attendedCount = eventRegs.filter(r => r.attended).length;
+                      const percent = eventRegs.length > 0 ? (attendedCount / eventRegs.length) * 100 : 0;
+                      
+                      return (
+                        <div key={event.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                          <div className="flex justify-between items-end mb-2">
+                            <div>
+                              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">{event.title}</p>
+                              <p className="text-sm font-bold text-slate-900">{attendedCount} / {eventRegs.length} пришли</p>
+                            </div>
+                            <span className="text-[10px] font-black text-slate-400">{Math.round(percent)}%</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${percent}%` }}
+                              className="h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Logbook / Journal */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Журнал посещаемости</h2>
+                  <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Полный список участников и их активность</p>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text"
+                    placeholder="Поиск по имени..."
+                    value={searchAttendee}
+                    onChange={(e) => setSearchAttendee(e.target.value)}
+                    className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 ring-blue-500/20 focus:border-blue-500 outline-none w-full md:w-64 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/50">
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Участник</th>
+                      {events.filter(e => e.type === 'masterclass').map(e => (
+                        <th key={e.id} className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center min-w-[120px]">
+                          {e.title}
+                        </th>
+                      ))}
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Всего</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {users
+                      .filter(u => u.role !== 'organizer')
+                      .filter(u => u.displayName.toLowerCase().includes(searchAttendee.toLowerCase()))
+                      .map(user => {
+                        const userRegs = registrations.filter(r => r.userId === user.id);
+                        const masterclasses = events.filter(e => e.type === 'masterclass');
+                        const totalAttended = userRegs.filter(r => r.attended).length;
+
+                        return (
+                          <tr key={user.id} className="hover:bg-slate-50/30 transition-colors group">
+                            <td className="px-8 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs font-black shadow-inner overflow-hidden uppercase shrink-0 border-2 border-white shadow-sm">
+                                  {user.photoURL ? <img src={user.photoURL} alt="" className="w-full h-full object-cover" /> : user.displayName[0]}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{user.displayName}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium">{user.email}</p>
+                                </div>
+                              </div>
+                            </td>
+                            {masterclasses.map(mc => {
+                              const reg = userRegs.find(r => r.eventId === mc.id);
+                              
+                              return (
+                                <td key={mc.id} className="px-4 py-4 text-center">
+                                  {!reg ? (
+                                    <div className="text-[9px] text-slate-200 font-black uppercase tracking-widest">Нет записи</div>
+                                  ) : reg.status === 'waitlist' ? (
+                                    <div className="text-[9px] text-orange-400 font-black uppercase tracking-widest">Ожидание</div>
+                                  ) : reg.attended ? (
+                                    <div className="flex flex-col items-center gap-1">
+                                      <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+                                        <Check size={14} />
+                                      </div>
+                                      <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Пришел</span>
+                                    </div>
+                                  ) : (
+                                    <button 
+                                      onClick={() => handleMarkAttendance(user.id)}
+                                      className="flex flex-col items-center gap-1 opacity-40 hover:opacity-100 transition-all"
+                                    >
+                                      <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
+                                        <X size={14} />
+                                      </div>
+                                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Не пришел</span>
+                                    </button>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="px-8 py-4 text-right">
+                              <span className={`text-sm font-black px-3 py-1 rounded-full ${
+                                totalAttended > 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-400'
+                              }`}>
+                                {totalAttended}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         ) : activeTab === 'questions' ? (
           <div className="space-y-4">
@@ -932,13 +1226,13 @@ export default function AdminPanel() {
               <section>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center font-bold">
-                    {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length}
+                    {registrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length}
                   </div>
                   <h4 className="text-sm font-bold uppercase tracking-widest text-slate-900">Подтвержденные участники</h4>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {allRegistrations
+                  {registrations
                     .filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed')
                     .map(reg => {
                       const userProfile = users.find(u => u.id === reg.userId);
@@ -955,13 +1249,23 @@ export default function AdminPanel() {
                             <p className="text-sm font-bold text-slate-900">{userProfile?.displayName || 'Анонимный пользователь'}</p>
                             <p className="text-[10px] text-slate-400 font-mono">{userProfile?.email || 'email@hidden'}</p>
                           </div>
-                          <div className="ml-auto">
-                             <div className="text-[9px] uppercase font-bold text-green-500 bg-green-50 px-2 py-0.5 rounded">OK</div>
+                          <div className="ml-auto flex items-center gap-2">
+                             <button 
+                               onClick={() => toggleAttendance(reg.id, !!reg.attended)}
+                               className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                 reg.attended 
+                                 ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+                                 : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                               }`}
+                             >
+                               {reg.attended ? 'Был' : 'Отметить'}
+                             </button>
+                             <div className="text-[9px] uppercase font-bold text-green-500 bg-green-50 px-2 py-0.5 rounded border border-green-100">OK</div>
                           </div>
                         </div>
                       );
                     })}
-                  {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length === 0 && (
+                  {registrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'confirmed').length === 0 && (
                     <div className="col-span-full border-2 border-dashed border-slate-100 rounded-xl p-8 text-center text-slate-400 italic text-sm">
                       Никто пока не подтвержден
                     </div>
@@ -973,13 +1277,13 @@ export default function AdminPanel() {
               <section>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center font-bold">
-                    {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length}
+                    {registrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length}
                   </div>
                   <h4 className="text-sm font-bold uppercase tracking-widest text-slate-900">Лист ожидания</h4>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {allRegistrations
+                  {registrations
                     .filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist')
                     .map(reg => {
                       const userProfile = users.find(u => u.id === reg.userId);
@@ -1002,13 +1306,14 @@ export default function AdminPanel() {
                         </div>
                       );
                     })}
-                  {allRegistrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length === 0 && (
+                  {registrations.filter(r => r.eventId === selectedEventForList.id && r.status === 'waitlist').length === 0 && (
                     <div className="col-span-full border-2 border-dashed border-slate-100 rounded-xl p-8 text-center text-slate-400 italic text-sm">
                       Лист ожидания пуст
                     </div>
                   )}
                 </div>
               </section>
+
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 text-right">

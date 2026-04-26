@@ -7,13 +7,15 @@ import {
   limit,
   where 
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, Registration } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar as CalendarIcon, MapPin, Clock, Plus, Info, Map as MapIcon, Loader2, Megaphone, History, Users } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Clock, Plus, Info, Map as MapIcon, Loader2, Megaphone, History, Users, QrCode, X, Mail } from 'lucide-react';
 import { formatTime, formatDate } from '../utils';
 import PollsSection from '../components/PollsSection';
+import { QRCodeSVG } from 'qrcode.react';
+import NotificationBell from '../components/NotificationBell';
 
 interface Announcement {
   id: string;
@@ -24,7 +26,7 @@ interface Announcement {
 }
 
 export default function Dashboard() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [userRegistrations, setUserRegistrations] = useState<Record<string, Registration>>({});
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -33,6 +35,8 @@ export default function Dashboard() {
   const [progress, setProgress] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
     typeof window !== 'undefined' ? (window.Notification?.permission || 'default') : 'default'
   );
@@ -53,7 +57,7 @@ export default function Dashboard() {
       setEvents(eventList);
       setLoading(false);
     }, (error) => {
-      console.warn("Dashboard events error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'events');
     });
 
     // Fetch announcements
@@ -64,6 +68,8 @@ export default function Dashboard() {
         ...doc.data()
       })) as Announcement[];
       setAnnouncements(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'announcements');
     });
 
     return () => {
@@ -83,6 +89,8 @@ export default function Dashboard() {
         regs[data.eventId] = { id: doc.id, ...data };
       });
       setUserRegistrations(regs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'registrations');
     });
 
     return () => unsubscribeRegs();
@@ -163,13 +171,17 @@ export default function Dashboard() {
           <h1 className="text-lg font-semibold text-slate-900 uppercase tracking-tight">Рабочая доска</h1>
           <div className="px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 text-[10px] font-bold rounded uppercase tracking-wider">Live Updates</div>
         </div>
-        <div className="flex items-center gap-4 text-sm font-medium">
-          <span className="text-slate-400">Привет, {profile?.displayName?.split(' ')[0] || 'Участник'}!</span>
-          {profile?.role === 'organizer' ? (
-            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded uppercase border border-purple-200">Организатор</span>
-          ) : (
-            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase border border-blue-200">Участник</span>
-          )}
+        <div className="flex items-center gap-6">
+          <NotificationBell />
+          <div className="h-8 w-[1px] bg-slate-200"></div>
+          <div className="flex items-center gap-6 text-sm font-medium">
+            <span className="text-slate-400">Привет, {profile?.displayName?.split(' ')[0] || 'Участник'}!</span>
+            {profile?.role === 'organizer' ? (
+              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded uppercase border border-purple-200">Организатор</span>
+            ) : (
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase border border-blue-200">Участник</span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -197,6 +209,7 @@ export default function Dashboard() {
             </button>
           </motion.div>
         )}
+
 
         <div className="grid grid-cols-12 gap-8 mb-8">
           <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
@@ -356,7 +369,11 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
                   {events.map((event) => (
-                    <tr key={event.id} className="hover:bg-slate-50 transition-colors group">
+                    <tr 
+                      key={event.id} 
+                      onClick={() => setSelectedEvent(event)}
+                      className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                    >
                       <td className="px-6 py-4 font-mono text-xs text-blue-600 tabular-nums border-r border-slate-50 bg-slate-50/30">
                         {formatTime(event.startTime)} — {formatTime(event.endTime)}
                       </td>
@@ -402,22 +419,74 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <footer className="h-12 border-t border-slate-200 flex items-center justify-between px-8 bg-white text-[10px] text-slate-400 font-bold tracking-widest uppercase shrink-0">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-            <span>EVENT ID: NX-2024</span>
+      <AnimatePresence>
+        {selectedEvent && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-6 z-[100] backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl relative"
+              onClick={e => e.stopPropagation()}
+            >
+              <button 
+                onClick={() => setSelectedEvent(null)}
+                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-900 transition-colors"
+                id="close-event-modal"
+              >
+                <Info size={20} />
+              </button>
+
+              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
+                <CalendarIcon size={24} />
+              </div>
+              
+              <h2 className="text-xl font-bold text-slate-900 mb-2">{selectedEvent.title}</h2>
+              <div className="flex items-center gap-2 mb-6">
+                {selectedEvent.type === 'masterclass' && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-black rounded border border-blue-100 uppercase tracking-tighter">Masterclass</span>}
+                {selectedEvent.speakerName && <span className="text-slate-400 text-xs font-medium">— {selectedEvent.speakerName}</span>}
+              </div>
+              
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center gap-3 text-slate-500">
+                   <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+                      <MapPin size={16} />
+                   </div>
+                   <div className="text-xs">
+                      <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Место проведения</p>
+                      <p className="font-bold text-slate-900">{selectedEvent.location}</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-3 text-slate-500">
+                   <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center">
+                      <Clock size={16} />
+                   </div>
+                   <div className="text-xs">
+                      <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Расписание</p>
+                      <p className="font-bold text-slate-900">{formatTime(selectedEvent.startTime)} — {formatTime(selectedEvent.endTime)}</p>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-5 mb-8">
+                <p className="text-sm text-slate-700 leading-relaxed italic">
+                  {selectedEvent.description || 'Детальное описание события будет доступно в ближайшее время.'}
+                </p>
+              </div>
+
+              <button 
+                onClick={() => setSelectedEvent(null)}
+                className="w-full py-4 bg-slate-900 text-white rounded-xl text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-200"
+              >
+                Закрыть
+              </button>
+            </motion.div>
           </div>
-          <div className="flex items-center gap-2">
-            <Clock size={12} className="text-slate-300" />
-            <span>SYNCED: {new Date().toLocaleTimeString('ru-RU')}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>&copy; 2024</span>
-          <span className="text-slate-900">Организатор в кармане</span>
-        </div>
-      </footer>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+      </AnimatePresence>
     </div>
   );
 }

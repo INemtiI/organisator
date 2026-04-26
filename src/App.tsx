@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Masterclasses from './pages/Masterclasses';
@@ -8,6 +9,7 @@ import CommunityChat from './pages/Chat';
 import Questions from './pages/Questions';
 import AdminPanel from './pages/Admin';
 import VenueMap from './pages/Map';
+import Ticket from './pages/Ticket';
 import Navigation from './components/Navigation';
 import NotificationManager from './components/NotificationManager';
 
@@ -36,9 +38,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
+      <NotificationProvider>
+        <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/ticket/:userId" element={<Ticket />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/masterclasses" element={<ProtectedRoute><Masterclasses /></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><CommunityChat /></ProtectedRoute>} />
@@ -48,6 +52,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </Router>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

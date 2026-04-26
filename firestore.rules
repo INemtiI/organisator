@@ -8,13 +8,20 @@ service cloud.firestore {
 
     // --- Helpers ---
     function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isVerified() { return isSignedIn(); }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isAdmin() { 
       return isSignedIn() && (
         request.auth.token.email == 'rodionovazarij@gmail.com' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organizer')
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organizer')
       ); 
+    }
+
+    function isParticipant() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'participant';
     }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
@@ -42,17 +49,22 @@ service cloud.firestore {
 
     function isValidRegistration(data) {
       return data.keys().hasAll(['userId', 'eventId', 'status', 'timestamp'])
-        && data.userId == request.auth.uid
+        && data.userId is string
         && data.status in ['confirmed', 'waitlist']
-        && data.timestamp == request.time
-        && isValidId(data.eventId);
+        && isValidId(data.eventId)
+        && data.timestamp is timestamp;
     }
 
     function isValidChatMessage(data) {
-      return data.keys().hasAll(['userId', 'userName', 'text', 'timestamp'])
+      return data.keys().hasAll(['userId', 'userName', 'text', 'timestamp', 'channelId', 'userRole'])
         && data.userId == request.auth.uid
         && data.text is string && data.text.size() <= 1000
-        && data.timestamp == request.time;
+        && data.timestamp == request.time
+        && data.channelId in ['general', 'secret', 'event']
+        && data.userRole in ['participant', 'organizer']
+        && (data.channelId != 'secret' || data.userRole == 'participant')
+        && (data.channelId != 'event' || (data.keys().contains('eventId') && isValidId(data.eventId)))
+        && (!data.keys().contains('reactions') || data.reactions is map);
     }
 
     function isValidQuestion(data) {
@@ -96,24 +108,37 @@ service cloud.firestore {
     }
 
     match /registrations/{registrationId} {
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'waitlist' || isAdmin());
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'waitlist' || isAdmin());
-      allow create: if isSignedIn() && isValidRegistration(incoming()) 
-        && exists(/databases/$(database)/documents/events/$(incoming().eventId));
-      allow update: if isAdmin() || (
-        isSignedIn() && (
-          (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) || 
-          (existing().status == 'waitlist' && incoming().status == 'confirmed' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'queuePosition']))
-        )
-      );
-      allow delete: if isAdmin() || isOwner(existing().userId);
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
     }
 
     match /chat_messages/{messageId} {
-      allow list: if isSignedIn();
-      allow get: if isSignedIn();
-      allow create: if isSignedIn() && isValidChatMessage(incoming());
-      allow delete: if isAdmin();
+      allow list: if isSignedIn() && (
+        resource.data.channelId == 'general' || 
+        (resource.data.channelId == 'secret' && isParticipant()) ||
+        (resource.data.channelId == 'event' && (
+          isAdmin() || 
+          (resource.data.keys().contains('eventId') && 
+           exists(/databases/$(database)/documents/registrations/$(request.auth.uid + "_" + resource.data.eventId)))
+        ))
+      );
+      allow get: if isSignedIn() && (
+        resource.data.channelId == 'general' || 
+        (resource.data.channelId == 'secret' && isParticipant()) ||
+        (resource.data.channelId == 'event' && (
+          isAdmin() || 
+          (resource.data.keys().contains('eventId') && 
+           exists(/databases/$(database)/documents/registrations/$(request.auth.uid + "_" + resource.data.eventId)))
+        ))
+      );
+      allow create: if isSignedIn() && isValidChatMessage(incoming()) && (
+        incoming().channelId != 'event' || 
+        isAdmin() || 
+        exists(/databases/$(database)/documents/registrations/$(request.auth.uid + "_" + incoming().eventId))
+      );
+      allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['reactions']) && incoming().reactions is map;
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /questions/{questionId} {
@@ -135,8 +160,7 @@ service cloud.firestore {
     }
 
     match /votes/{voteId} {
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isSignedIn();
       allow create: if isSignedIn() && incoming().userId == request.auth.uid && (incoming().timestamp == request.time || incoming().timestamp is timestamp);
       allow update, delete: if isAdmin();
     }

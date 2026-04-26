@@ -23,6 +23,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string, role: UserRole) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfilePhoto: (photoURL: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -87,8 +88,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => signOut(auth);
 
+  const updateProfilePhoto = async (photoURL: string) => {
+    if (!user) return;
+    
+    // Update Firebase Auth
+    await updateProfile(user, { photoURL });
+
+    // Update Firestore
+    await setDoc(doc(db, 'users', user.uid), { photoURL }, { merge: true });
+
+    // Update local state
+    if (profile) {
+      setProfile({ ...profile, photoURL });
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, logout, updateProfilePhoto }}>
       {children}
     </AuthContext.Provider>
   );

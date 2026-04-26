@@ -38,6 +38,8 @@
         "eventId": { "type": "string" },
         "status": { "type": "string", "enum": ["confirmed", "waitlist"] },
         "queuePosition": { "type": "integer" },
+        "attended": { "type": "boolean" },
+        "attendedAt": { "type": "string", "format": "date-time" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "eventId", "status", "timestamp"]
@@ -49,10 +51,21 @@
       "properties": {
         "userId": { "type": "string" },
         "userName": { "type": "string" },
+        "userPhotoURL": { "type": "string" },
+        "userRole": { "type": "string", "enum": ["participant", "organizer"] },
+        "channelId": { "type": "string", "enum": ["general", "secret", "event"] },
+        "eventId": { "type": "string" },
         "text": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" }
+        "timestamp": { "type": "string", "format": "date-time" },
+        "reactions": { 
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
       },
-      "required": ["userId", "userName", "text", "timestamp"]
+      "required": ["userId", "userName", "text", "timestamp", "channelId"]
     },
     "Question": {
       "title": "Question to Organizer",

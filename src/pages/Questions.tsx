@@ -6,50 +6,15 @@ import {
   query, 
   where, 
   orderBy, 
-  serverTimestamp 
+  serverTimestamp,
+  deleteDoc,
+  doc
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, MessageSquare, Clock, CheckCircle2, User, ChevronRight } from 'lucide-react';
+import { Send, MessageSquare, Clock, CheckCircle2, User } from 'lucide-react';
 import FAQ from '../components/FAQ';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
 
 interface Question {
   id: string;
@@ -76,11 +41,15 @@ export default function Questions() {
     if (!user) return;
 
     const path = 'questions';
-    const q = query(
-      collection(db, path), 
-      where('userId', '==', user.uid),
-      orderBy('timestamp', 'desc')
-    );
+    const isOrganizer = profile?.role === 'organizer';
+    
+    const q = isOrganizer 
+      ? query(collection(db, path), orderBy('timestamp', 'desc'))
+      : query(
+          collection(db, path), 
+          where('userId', '==', user.uid),
+          orderBy('timestamp', 'desc')
+        );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Question[];
@@ -104,7 +73,7 @@ export default function Questions() {
       await addDoc(collection(db, path), {
         userId: user.uid,
         userName: profile?.displayName || user.displayName || 'Участник',
-        userPhoto: user.photoURL || '',
+        userPhoto: profile?.photoURL || user.photoURL || '',
         text: newQuestion.trim(),
         timestamp: serverTimestamp(),
         status: 'pending'
@@ -114,6 +83,16 @@ export default function Questions() {
       handleFirestoreError(err, OperationType.CREATE, path);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить этот вопрос?')) return;
+    const path = 'questions';
+    try {
+      await deleteDoc(doc(db, path, id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `${path}/${id}`);
     }
   };
 
@@ -205,9 +184,9 @@ export default function Questions() {
                       <div className="p-6">
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                            <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 overflow-hidden">
                               {q.userPhoto ? (
-                                <img src={q.userPhoto} alt="" className="w-full h-full rounded-full" />
+                                <img src={q.userPhoto} alt="" className="w-full h-full object-cover" />
                               ) : (
                                 <User size={16} />
                               )}
@@ -220,13 +199,15 @@ export default function Questions() {
                               </div>
                             </div>
                           </div>
-                          <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${
-                            q.status === 'answered' 
-                              ? 'bg-green-50 text-green-700 border-green-100' 
-                              : 'bg-orange-50 text-orange-700 border-orange-100'
-                          }`}>
-                            {q.status === 'answered' ? 'Отвечено' : 'В ожидании'}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${
+                              q.status === 'answered' 
+                                ? 'bg-green-50 text-green-700 border-green-100' 
+                                : 'bg-orange-50 text-orange-700 border-orange-100'
+                            }`}>
+                              {q.status === 'answered' ? 'Отвечено' : 'В ожидании'}
+                            </span>
+                          </div>
                         </div>
 
                         <p className="text-sm text-slate-900 leading-relaxed bg-slate-50/50 p-4 rounded-lg border border-slate-50">

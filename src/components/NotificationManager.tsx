@@ -1,13 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import { collection, query, onSnapshot, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { Announcement, Event, Registration } from '../types';
 
 export default function NotificationManager() {
   const { profile } = useAuth();
+  const { addNotification } = useNotifications();
   const seenAnnouncements = useRef<Set<string>>(new Set());
-  const seenUpcoming = useRef<Set<string>>(new Set());
+  const seenNotifications = useRef<Set<string>>(new Set());
   const lastKnownStatuses = useRef<Record<string, string>>({});
   const lastKnownCounts = useRef<Record<string, number>>({});
   const confirmedEvents = useRef<Event[]>([]);
@@ -15,18 +17,21 @@ export default function NotificationManager() {
   useEffect(() => {
     if (!("Notification" in window)) return;
     if (Notification.permission === "default") {
-      // We don't force it immediately but it helps if they see common benefits
-      console.log("Notifications permission is in default state.");
+      // Permission logic remains same
     }
   }, []);
 
   const sendNotification = (title: string, body: string) => {
+    // 1. App-level notification (always send to context)
+    addNotification(title, body);
+
+    // 2. System-level notification (if granted)
     if (Notification.permission === "granted") {
       try {
         new Notification(title, { 
           body, 
           icon: '/favicon.ico',
-          tag: title + body // Avoid some duplicates
+          tag: title + body 
         });
       } catch (err) {
         console.error("Notification error:", err);
@@ -93,7 +98,7 @@ export default function NotificationManager() {
       confirmedEvents.current = eventList;
     });
 
-    // 4. 10 minutes before timer
+    // 4. Pre-event reminders (1 hour and 10 minutes)
     const interval = setInterval(() => {
       const now = Date.now();
       confirmedEvents.current.forEach(event => {
@@ -102,15 +107,21 @@ export default function NotificationManager() {
           if (startTime > 0) {
             const diffMinutes = Math.floor((startTime - now) / 60000);
             
-            // Check if exactly 10 minutes (or 9-11 range to be safe with interval)
-            if (diffMinutes === 10 && !seenUpcoming.current.has(event.id)) {
-              seenUpcoming.current.add(event.id);
-              sendNotification('Событие скоро начнется', `"${event.title}" начнется через 10 минут в ${event.location}.`);
+            // 1 hour reminder
+            if (diffMinutes > 58 && diffMinutes <= 60 && !seenNotifications.current.has(event.id + '-60m')) {
+              seenNotifications.current.add(event.id + '-60m');
+              sendNotification('Напоминание (1 час)', `"${event.title}" начнется через час в ${event.location}.`);
+            }
+
+            // 10 minutes reminder
+            if (diffMinutes > 8 && diffMinutes <= 10 && !seenNotifications.current.has(event.id + '-10m')) {
+              seenNotifications.current.add(event.id + '-10m');
+              sendNotification('Напоминание (10 минут)', `"${event.title}" начнется через 10 минут в ${event.location}.`);
             }
           }
         }
       });
-    }, 30000); // Check every 30 seconds
+    }, 20000); // Check every 20 seconds
 
     return () => {
       unsubAnn();

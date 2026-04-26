@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Event } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Map as MapIcon, Loader2, Info, MapPin, Clock } from 'lucide-react';
+import { Map as MapIcon, Loader2, Info, MapPin, Clock, X } from 'lucide-react';
 import { formatTime } from '../utils';
 
 const VENUE_LOCATIONS = [
@@ -13,6 +13,7 @@ const VENUE_LOCATIONS = [
   { id: 'hall_b', name: 'Конференц-зал B', description: 'Технические сессии', x: '80%', y: '70%' },
   { id: 'food', name: 'Зона питания', description: 'Кофе-брейки и обеды', x: '20%', y: '30%' },
   { id: 'cloakroom', name: 'Гардероб', description: 'Хранение вещей', x: '10%', y: '50%' },
+  { id: 'entrance', name: 'Вход', description: 'Главный вход в здание', x: '50%', y: '95%' },
 ];
 
 export default function VenueMap() {
@@ -28,6 +29,9 @@ export default function VenueMap() {
         ...doc.data()
       })) as Event[];
       setEvents(eventList);
+      setLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'events');
       setLoading(false);
     });
 
@@ -88,8 +92,15 @@ export default function VenueMap() {
               {/* Food Area */}
               <path d="M50 50 L250 50 L250 150 L50 150 Z" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="1" />
               
+              {/* Cloakroom Room */}
+              <path d="M50 200 L120 200 L120 300 L50 300 Z" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="1" />
+              
               {/* Registration */}
               <circle cx="150" cy="350" r="40" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="1" />
+              
+              {/* Entrance Area */}
+              <path d="M350 400 L450 400 L450 430 L350 430 Z" fill="#F1F5F9" stroke="#94A3B8" strokeWidth="2" strokeDasharray="4 2" />
+              <text x="400" y="420" textAnchor="middle" fill="#94A3B8" fontSize="10" fontWeight="bold" className="uppercase tracking-widest">Entrance</text>
             </svg>
           </div>
 
@@ -98,6 +109,7 @@ export default function VenueMap() {
             const activeEvent = getActiveEventAtLocation(loc.name);
             const allAtLocation = getEventsAtLocation(loc.name);
             const isSelected = selectedLocation === loc.id;
+            const isInteractive = !['food', 'cloakroom', 'reg', 'entrance'].includes(loc.id);
 
             return (
               <div 
@@ -106,8 +118,16 @@ export default function VenueMap() {
                 style={{ left: loc.x, top: loc.y }}
               >
                 <button
-                  onClick={() => setSelectedLocation(isSelected ? null : loc.id)}
-                  className={`relative group transition-all duration-300 ${isSelected ? 'scale-110' : 'scale-100 hover:scale-105'}`}
+                  onClick={() => {
+                    if (isInteractive) {
+                      setSelectedLocation(isSelected ? null : loc.id);
+                      if (loc.id === 'stage') {
+                        document.getElementById('bottom-info')?.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }
+                  }}
+                  disabled={!isInteractive}
+                  className={`relative group transition-all duration-300 ${!isInteractive ? 'cursor-default' : ''} ${isSelected ? 'scale-110' : 'scale-100'}`}
                 >
                   {/* Ripple Effect for Active Event */}
                   {activeEvent && (
@@ -122,10 +142,11 @@ export default function VenueMap() {
                     ${isSelected ? 'ring-4 ring-blue-100 border-blue-500 scale-110' : ''}
                   `}>
                     {loc.id === 'stage' && <MapPin size={20} />}
-                    {loc.id === 'reg' && <Info size={20} />}
+                    {loc.id === 'reg' && null}
                     {(loc.id === 'hall_a' || loc.id === 'hall_b') && <Clock size={20} />}
-                    {loc.id === 'food' && <div className="text-sm font-bold">🍴</div>}
-                    {loc.id === 'cloakroom' && <div className="text-sm font-bold">📦</div>}
+                    {loc.id === 'food' && null}
+                    {loc.id === 'cloakroom' && null}
+                    {loc.id === 'entrance' && null}
                   </div>
 
                   {/* Activity Indicator Dots */}
@@ -181,21 +202,95 @@ export default function VenueMap() {
         </div>
       </div>
 
-      <div className="h-20 border-t border-slate-200 bg-white grid grid-cols-6 shrink-0 relative z-10 px-4">
+      <div id="bottom-info" className="h-20 border-t border-slate-200 bg-white grid grid-cols-7 shrink-0 relative z-40 px-4">
         {VENUE_LOCATIONS.map((loc) => {
-           const activeEvent = getActiveEventAtLocation(loc.name);
-           return (
-             <button
-              key={loc.id}
-              onClick={() => setSelectedLocation(selectedLocation === loc.id ? null : loc.id)}
-              className={`flex flex-col items-center justify-center transition-all ${selectedLocation === loc.id ? 'bg-slate-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-             >
+            const activeEvent = getActiveEventAtLocation(loc.name);
+            const isInteractive = !['food', 'cloakroom', 'reg', 'entrance'].includes(loc.id);
+            return (
+              <button
+               key={loc.id}
+               onClick={() => isInteractive && setSelectedLocation(selectedLocation === loc.id ? null : loc.id)}
+               disabled={!isInteractive}
+               className={`flex flex-col items-center justify-center transition-all ${!isInteractive ? 'cursor-default opacity-60' : ''} ${selectedLocation === loc.id ? 'bg-slate-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+              >
                <span className="text-[9px] font-black uppercase tracking-widest leading-none mb-1 text-center px-2">{loc.name}</span>
                {activeEvent && <div className="w-1 h-1 rounded-full bg-blue-500 mt-1"></div>}
              </button>
            );
         })}
       </div>
+
+      {/* Sliding Info Plank */}
+      <AnimatePresence>
+        {selectedLocation && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="absolute bottom-20 left-0 right-0 bg-white border-t border-slate-200 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] overflow-hidden"
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                    <MapPin size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">
+                      {VENUE_LOCATIONS.find(l => l.id === selectedLocation)?.name}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">Расписание на сегодня</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedLocation(null)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {getEventsAtLocation(VENUE_LOCATIONS.find(l => l.id === selectedLocation)?.name || '').length > 0 ? (
+                  getEventsAtLocation(VENUE_LOCATIONS.find(l => l.id === selectedLocation)?.name || '').sort((a, b) => a.startTime.seconds - b.startTime.seconds).map((ev) => (
+                    <div key={ev.id} className="flex items-center gap-4 group">
+                      <div className="w-16 shrink-0 text-right">
+                        <span className="text-[10px] font-mono text-slate-400">{formatTime(ev.startTime)}</span>
+                      </div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover:bg-blue-500 transition-colors" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-slate-700 leading-none">{ev.title}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400">На сегодня событий больше нет</p>
+                  </div>
+                )}
+              </div>
+
+              {selectedLocation === 'stage' && (
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <div className="bg-blue-50 rounded-xl p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                      <Info size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-blue-800 font-black uppercase tracking-widest mb-1">Важно</p>
+                      <p className="text-[11px] text-blue-600 font-medium leading-relaxed">
+                        На главной сцене проходят ключевые выступления конференции. 
+                        Рекомендуем приходить за 5-10 минут до начала.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

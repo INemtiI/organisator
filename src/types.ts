@@ -29,6 +29,8 @@ export interface Registration {
   eventId: string;
   status: 'confirmed' | 'waitlist';
   queuePosition?: number;
+  attended?: boolean;
+  attendedAt?: any;
   timestamp: any;
 }
 
@@ -36,8 +38,13 @@ export interface ChatMessage {
   id: string;
   userId: string;
   userName: string;
+  userPhotoURL?: string;
+  userRole?: UserRole;
+  channelId: 'general' | 'secret' | 'event';
+  eventId?: string;
   text: string;
   timestamp: any;
+  reactions?: Record<string, string[]>;
 }
 
 export interface Question {

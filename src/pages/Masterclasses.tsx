@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   collection, 
   onSnapshot, 
@@ -11,15 +12,16 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, Registration } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, Timer, CheckCircle, AlertCircle, Loader2, MapPin, X, Info, Clock } from 'lucide-react';
+import { Users, Timer, CheckCircle, AlertCircle, Loader2, MapPin, X, Info, Clock, MessageSquare } from 'lucide-react';
 import { formatTime } from '../utils';
 
 export default function Masterclasses() {
-  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
   const [masterclasses, setMasterclasses] = useState<Event[]>([]);
   const [userRegistrations, setUserRegistrations] = useState<Record<string, Registration>>({});
   const [attendeeCounts, setAttendeeCounts] = useState<Record<string, number>>({});
@@ -36,7 +38,7 @@ export default function Masterclasses() {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Event[];
       setMasterclasses(list);
     }, (error) => {
-      console.warn("Events listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'events');
     });
 
     // 2. Listen for user registrations
@@ -50,7 +52,7 @@ export default function Masterclasses() {
       setUserRegistrations(regs);
       setLoading(false);
     }, (error) => {
-      console.warn("Registrations listener error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'registrations');
     });
 
     return () => {
@@ -82,8 +84,13 @@ export default function Masterclasses() {
         const max = mcData.maxParticipants || 0;
         const currentCount = mcData.confirmedCount || 0;
 
-        const newRegRef = doc(collection(db, 'registrations'));
+        const regId = profile.id + "_" + masterclassId;
+        const newRegRef = doc(db, 'registrations', regId);
         
+        // Check if already registered
+        const existingReg = await transaction.get(newRegRef);
+        if (existingReg.exists()) throw new Error("Вы уже зарегистрированы на этот мастер-класс");
+
         if (currentCount < max) {
           transaction.set(newRegRef, {
             userId: profile.id,
@@ -105,8 +112,7 @@ export default function Masterclasses() {
         }
       });
     } catch (err: any) {
-      console.error("Register error:", err);
-      alert('Ошибка при регистрации: ' + err.message);
+      handleFirestoreError(err, OperationType.WRITE, 'registrations');
     } finally {
       setActionLoading(null);
     }
@@ -181,9 +187,8 @@ export default function Masterclasses() {
         }
       });
     } catch (err: any) {
-      console.error("Unregister error:", err);
       setUserRegistrations(previousRegs); // Rollback on error
-      alert('Ошибка при отмене: ' + err.message);
+      handleFirestoreError(err, OperationType.DELETE, 'registrations/' + regId);
     } finally {
       setActionLoading(null);
     }
